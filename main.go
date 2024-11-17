@@ -276,6 +276,77 @@ func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centr
 		})
 	})
 
+	r.GET("/solveTask5", func(ctx *gin.Context) {
+		// Cast the LLMService to OpenAiService to access transcription methods
+		openAIService, ok := llmService.(*services.OpenAiService)
+		if !ok {
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"error": "LLM service is not an OpenAI service",
+			})
+			return
+		}
+
+		// 1. Transcribe all audio files
+		transcriptions, err := openAIService.TranscribeDirectory("datasets/task5")
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("Failed to transcribe audio files: %v", err),
+			})
+			return
+		}
+
+		// 2. Combine all transcriptions into one text
+		var combinedText string
+		for _, transcription := range transcriptions {
+			combinedText += transcription + "\n"
+		}
+
+		// 3. Prepare the prompt for GPT-4
+		prompt := `Please analyze these transcriptions carefully. Think step by step:
+		Think slowly and carefully.
+		Think about any locations which might be connected to universities or educational institutions.
+		They might not be directly mentioned.
+		Make sure to use external sources and your knowledge to find the answer.
+		Is there any specific part of university which is mentioned?
+
+		Return me only the answer in this format: { "question": "On which street is the university where Andrzej Maj gives lectures?", "answer": "street name" , "possible_locations": [{"name": "street name1", "reasoning": "reasoning1", "confidence": 0.8}, {"name": "street name2", "reasoning": "reasoning2", "confidence": 0.5}, {"name": "street name3", "reasoning": "reasoning3", "confidence": 0.3}]}
+		Correct answer is not given in the transcriptions, but it's possible to connect the dots.
+
+Transcriptions:
+` + combinedText
+
+		// 4. Get response from GPT
+		response, err := openAIService.SendChatMessage(prompt)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("Failed to process with GPT: %v", err),
+			})
+			return
+		}
+
+		// 5. Send the response to centrala/report
+		reportRequest := map[string]interface{}{
+			"task":   "mp3",
+			"apikey": centralaAPIKey,
+			"answer": response,
+		}
+
+		reportURL := fmt.Sprintf("%s/report", centralaBaseURL)
+		reportResponse, err := services.PostJSON(reportURL, reportRequest)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("Failed to send report: %v", err),
+			})
+			return
+		}
+
+		ctx.JSON(http.StatusOK, gin.H{
+			"transcriptions": transcriptions,
+			"gptResponse":    response,
+			"reportResponse": reportResponse,
+		})
+	})
+
 	return r
 }
 
@@ -316,8 +387,10 @@ func main() {
 	// Trim any trailing slashes from the base URL
 	baseURL = strings.TrimRight(baseURL, "/")
 
-	systemPrompt := `You are a helpful assistant, that answers question and number only. Return nothing else. Expected format: { "question": "this is a question?", "answer": 1234 }, ignore escape characters.`
-	llmService, err := services.NewOpenAIService(apiKey, systemPrompt, openai.GPT4oMini)
+	systemPrompt := `You are a helpful assistant that answers questions by providing street names. 
+Return your answer in this format: { "question": "this is a question?", "answer": "street name" }. 
+Be concise and return only the JSON response.`
+	llmService, err := services.NewOpenAIService(apiKey, systemPrompt, openai.GPT4)
 
 	if err != nil {
 		fmt.Println("Error initializing LLM Service:", err)
