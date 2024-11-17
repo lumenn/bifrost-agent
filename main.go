@@ -347,6 +347,58 @@ Transcriptions:
 		})
 	})
 
+	r.GET("/solveTask6", func(ctx *gin.Context) {
+		// 1. Get the robot ID JSON from centrala
+		robotIDURL := fmt.Sprintf("%s/data/%s/robotid.json", centralaBaseURL, centralaAPIKey)
+		content, err := services.GetRequestBody(robotIDURL)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("Failed to fetch robot ID data: %v", err),
+			})
+			return
+		}
+
+		// Cast the LLMService to OpenAiService to access DALL-E methods
+		openAIService, ok := llmService.(*services.OpenAiService)
+		if !ok {
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"error": "LLM service is not an OpenAI service",
+			})
+			return
+		}
+
+		// 2. Generate image using DALL-E
+		imageURL, err := openAIService.GenerateImage(content, 1024, 1024)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("Failed to generate image: %v", err),
+			})
+			return
+		}
+
+		// 3. Report the result to centrala
+		reportRequest := map[string]interface{}{
+			"task":   "robotid",
+			"apikey": centralaAPIKey,
+			"answer": imageURL,
+		}
+
+		reportURL := fmt.Sprintf("%s/report", centralaBaseURL)
+		response, err := services.PostJSON(reportURL, reportRequest)
+		if err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("Failed to send report: %v", err),
+			})
+			return
+		}
+
+		ctx.JSON(http.StatusOK, gin.H{
+			"robotIDContent": content,
+			"imageURL":       imageURL,
+			"reportResponse": response,
+		})
+	})
+
 	return r
 }
 

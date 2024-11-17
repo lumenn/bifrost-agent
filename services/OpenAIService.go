@@ -181,3 +181,25 @@ func (s OpenAiService) TranscribeDirectory(dirPath string) (map[string]string, e
 
 	return transcriptions, nil
 }
+
+func (s *OpenAiService) GenerateImage(prompt string, width, height int) (string, error) {
+	resp, err := s.client.CreateImage(context.Background(), openai.ImageRequest{
+		Prompt:         prompt,
+		Size:           fmt.Sprintf("%dx%d", width, height),
+		ResponseFormat: openai.CreateImageResponseFormatURL,
+		Model:          openai.CreateImageModelDallE3,
+		Quality:        openai.CreateImageQualityStandard,
+		Style:          openai.CreateImageStyleNatural,
+		N:              1,
+	})
+
+	if err != nil {
+		return "", fmt.Errorf("failed to generate image: %v", err)
+	}
+
+	if len(resp.Data) == 0 {
+		return "", fmt.Errorf("no image data received from DALL-E")
+	}
+
+	return resp.Data[0].URL, nil
+}
