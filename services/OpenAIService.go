@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	defaultMaxTokens = 1000
+	defaultMaxTokens = 16384
 	defaultTimeout   = 30 * time.Second
-	defaultModel     = openai.GPT4
+	defaultModel     = openai.GPT4o
 )
 
 type LLMService interface {
@@ -237,7 +237,7 @@ func (s *OpenAiService) AnalyzeImage(imagePath string) (string, error) {
 		openai.ChatCompletionRequest{
 			Model:     openai.GPT4Turbo,
 			Messages:  messages,
-			MaxTokens: 300,
+			MaxTokens: 4096,
 		},
 	)
 	if err != nil {

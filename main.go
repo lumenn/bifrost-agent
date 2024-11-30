@@ -50,6 +50,10 @@ func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centr
 		tasks.SolveTask7(ctx, llmService, centralaBaseURL, centralaAPIKey)
 	})
 
+	r.GET("/solveTask8", func(ctx *gin.Context) {
+		tasks.SolveTask8(ctx, llmService, centralaBaseURL, centralaAPIKey)
+	})
+
 	return r
 }
 
@@ -93,7 +97,7 @@ func main() {
 	systemPrompt := `You are a helpful assistant that answers questions by providing street names. 
 Return your answer in this format: { "question": "this is a question?", "answer": "street name" }. 
 Be concise and return only the JSON response.`
-	llmService, err := services.NewOpenAIService(apiKey, systemPrompt, openai.GPT4)
+	llmService, err := services.NewOpenAIService(apiKey, systemPrompt, openai.GPT4o)
 
 	if err != nil {
 		fmt.Println("Error initializing LLM Service:", err)
