@@ -3,7 +3,11 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
+	"sync"
+
+	"github.com/PuerkitoBio/goquery"
 )
 
 type TestData struct {
@@ -22,9 +26,29 @@ type CentralaData struct {
 	TestData    []TestData `json:"test-data"`
 }
 
-func ProcessCentralaData(baseURL, apiKey string, llmService LLMService) (*CentralaData, error) {
+type MediaInfo struct {
+	Type        string // "audio" or "image"
+	URL         string
+	Description string
+}
+
+type CentralaService struct {
+	baseURL       string
+	apiKey        string
+	openAIService *OpenAiService
+}
+
+func NewCentralaService(baseURL, apiKey string, openAIService *OpenAiService) *CentralaService {
+	return &CentralaService{
+		baseURL:       baseURL,
+		apiKey:        apiKey,
+		openAIService: openAIService,
+	}
+}
+
+func (s *CentralaService) ProcessCentralaData(llmService LLMService) (*CentralaData, error) {
 	// Construct the full URL
-	url := fmt.Sprintf("%s/data/%s/json.txt", baseURL, apiKey)
+	url := fmt.Sprintf("%s/data/%s/json.txt", s.baseURL, s.apiKey)
 	llmService.SetSystemPrompt(`
 	You are a helpful assistant that corrects the answers to multiple questions in the test.
 	You are given multiple questions.
@@ -126,7 +150,7 @@ func ProcessCentralaData(baseURL, apiKey string, llmService LLMService) (*Centra
 	}
 
 	response := &CentralaData{
-		APIKey:      apiKey,
+		APIKey:      s.apiKey,
 		Description: data.Description,
 		Copyright:   data.Copyright,
 		TestData:    correctedTestData,
@@ -135,9 +159,9 @@ func ProcessCentralaData(baseURL, apiKey string, llmService LLMService) (*Centra
 	return response, nil
 }
 
-func GetCensorshipData(baseURL, apiKey string) (string, error) {
+func (s *CentralaService) GetCensorshipData() (string, error) {
 	// Construct the URL using the provided base URL and API key
-	url := fmt.Sprintf("%s/data/%s/cenzura.txt", baseURL, apiKey)
+	url := fmt.Sprintf("%s/data/%s/cenzura.txt", s.baseURL, s.apiKey)
 
 	// Use the existing GetRequestBody function to fetch the content
 	content, err := GetRequestBody(url)
@@ -146,4 +170,135 @@ func GetCensorshipData(baseURL, apiKey string) (string, error) {
 	}
 
 	return content, nil
+}
+
+func (s *CentralaService) GetArxivQuestions() (map[string]string, error) {
+	url := fmt.Sprintf("%s/data/%s/arxiv.txt", s.baseURL, s.apiKey)
+	content, err := GetRequestBody(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch questions: %w", err)
+	}
+
+	questions := make(map[string]string)
+	err = json.Unmarshal([]byte(content), &questions)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse questions: %w", err)
+	}
+
+	return questions, nil
+}
+
+func (s *CentralaService) ProcessArxivPage(url string) (string, []MediaInfo, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to fetch page: %w", err)
+	}
+	defer resp.Body.Close()
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to parse HTML: %w", err)
+	}
+
+	var mediaInfos []MediaInfo
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	// Process audio files
+	doc.Find("audio source").Each(func(i int, sel *goquery.Selection) {
+		if src, exists := sel.Attr("src"); exists {
+			wg.Add(1)
+			go func(audioURL string) {
+				defer wg.Done()
+				if transcription, err := s.openAIService.TranscribeAudio(audioURL); err == nil {
+					mu.Lock()
+					mediaInfos = append(mediaInfos, MediaInfo{
+						Type:        "audio",
+						URL:         audioURL,
+						Description: transcription,
+					})
+					mu.Unlock()
+				}
+			}(src)
+		}
+	})
+
+	// Process images
+	doc.Find("img").Each(func(i int, sel *goquery.Selection) {
+		if src, exists := sel.Attr("src"); exists {
+			wg.Add(1)
+			go func(imgURL string) {
+				defer wg.Done()
+				if description, err := s.openAIService.AnalyzeImage(imgURL); err == nil {
+					mu.Lock()
+					mediaInfos = append(mediaInfos, MediaInfo{
+						Type:        "image",
+						URL:         imgURL,
+						Description: description,
+					})
+					mu.Unlock()
+				}
+			}(src)
+		}
+	})
+
+	wg.Wait()
+
+	// Create enhanced HTML with media descriptions
+	doc.Find("audio").Each(func(i int, sel *goquery.Selection) {
+		source := sel.Find("source")
+		if src, exists := source.Attr("src"); exists {
+			for _, info := range mediaInfos {
+				if info.URL == src {
+					sel.AfterHtml(fmt.Sprintf("<p class='media-description'>Audio transcription: %s</p>", info.Description))
+					break
+				}
+			}
+		}
+	})
+
+	doc.Find("img").Each(func(i int, sel *goquery.Selection) {
+		if src, exists := sel.Attr("src"); exists {
+			for _, info := range mediaInfos {
+				if info.URL == src {
+					sel.AfterHtml(fmt.Sprintf("<p class='media-description'>Image description: %s</p>", info.Description))
+					break
+				}
+			}
+		}
+	})
+
+	enhancedHTML, err := doc.Html()
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to generate enhanced HTML: %w", err)
+	}
+
+	return enhancedHTML, mediaInfos, nil
+}
+
+func (s *CentralaService) AnswerArxivQuestions(questions map[string]string, context string) (map[string]string, error) {
+	answers := make(map[string]string)
+
+	contextPrompt := fmt.Sprintf(`Based on the following context, answer the question in a single, concise sentence.
+
+Context:
+%s
+
+`, context)
+
+	for id, question := range questions {
+		prompt := contextPrompt + fmt.Sprintf("Question: %s\nProvide a single sentence answer:", question)
+
+		answer, err := s.openAIService.SendChatMessage(prompt)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get answer for question %s: %w", id, err)
+		}
+
+		answer = strings.TrimSpace(answer)
+		answer = strings.Trim(answer, `"'`)
+
+		answers[id] = answer
+	}
+
+	return answers, nil
 }
