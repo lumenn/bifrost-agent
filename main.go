@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	services "github.com/lumenn/bifrost-agent/services"
+	"github.com/lumenn/bifrost-agent/tasks"
 
 	goquery "github.com/PuerkitoBio/goquery"
 	"github.com/gin-gonic/gin"
@@ -151,255 +152,199 @@ func solveTask2(ctx *gin.Context, llmService services.LLMService, baseURL string
 	}
 }
 
-func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centralaAPIKey string) *gin.Engine {
-	r := gin.Default()
+func solveTask3(ctx *gin.Context, llmService services.LLMService, centralaBaseURL, centralaAPIKey string) {
+    correctedData, err := services.ProcessCentralaData(centralaBaseURL, centralaAPIKey, llmService)
+    if err != nil {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": fmt.Sprintf("Failed to process data: %v", err),
+        })
+        return
+    }
 
-	r.GET("/ping", func(ctx *gin.Context) {
-		ctx.JSON(http.StatusOK, gin.H{
-			"message": "pong",
-		})
-	})
+    reportRequest := map[string]interface{}{
+        "task":   "JSON",
+        "apikey": centralaAPIKey,
+        "answer": correctedData,
+    }
 
-	r.GET("/solveTask1", func(ctx *gin.Context) {
-		solveTask1(ctx, llmService, baseURL)
-	})
+    reportURL := fmt.Sprintf("%s/report", centralaBaseURL)
+    response, err := services.PostJSON(reportURL, reportRequest)
+    if err != nil {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": fmt.Sprintf("Failed to send report: %v", err),
+        })
+        return
+    }
 
-	r.GET("/solveTask2", func(ctx *gin.Context) {
-		solveTask2(ctx, llmService, baseURL)
-	})
+    ctx.JSON(http.StatusOK, gin.H{
+        "processedData":  correctedData,
+        "reportResponse": response,
+    })
+}
 
-	r.GET("/solveTask3", func(ctx *gin.Context) {
-		correctedData, err := services.ProcessCentralaData(centralaBaseURL, centralaAPIKey, llmService)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to process data: %v", err),
-			})
-			return
-		}
+func solveTask4(ctx *gin.Context, llmService services.LLMService, centralaBaseURL, centralaAPIKey, ollamaURL string) {
+    content, err := services.GetCensorshipData(centralaBaseURL, centralaAPIKey)
+    if (err != nil) {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": fmt.Sprintf("Failed to fetch censorship data: %v", err),
+        })
+        return
+    }
 
-		// Format the request according to the required structure
-		reportRequest := map[string]interface{}{
-			"task":   "JSON",
-			"apikey": centralaAPIKey,
-			"answer": correctedData,
-		}
+    ollamaService, err := services.NewOllamaService(
+        ollamaURL,
+        `You are a text processing assistant. Your task is to identify and censor personal information in text.
+        Replace the following with the word "CENZURA":
+        - Full Names
+        - Ages
+        - Cities
+        - Streets, including numbers
+        
+        Return only the processed text, with no additional explanations or formatting.
+        Keep all other information unchanged..
 
-		// Send the formatted request to the report endpoint
-		reportURL := fmt.Sprintf("%s/report", centralaBaseURL)
-		response, err := services.PostJSON(reportURL, reportRequest)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to send report: %v", err),
-			})
-			return
-		}
+		Examples:
+		- "Bartosz Przykładowy" -> "CENZURA"
+		- "I live at ul. Mickiewicza 15 in Warsaw" -> "I live at ul. CENZURA in CENZURA"
+		- "Address: st. Oak Street 45, Chicago" -> "Address: st. CENZURA, CENZURA"
+		- "Contact Sarah Jones, age 30, at ul. Długa 7" -> "Contact CENZURA, age CENZURA, at ul. CENZURA"
+		`,
+        "gemma2",
+    )
+    if (err != nil) {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": fmt.Sprintf("Failed to create Ollama service: %v", err),
+        })
+        return
+    }
 
-		// Return both the processed data and the report response
-		ctx.JSON(http.StatusOK, gin.H{
-			"processedData":  correctedData,
-			"reportResponse": response,
-		})
-	})
+    censoredContent, err := ollamaService.SendChatMessage(content)
+    if (err != nil) {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": fmt.Sprintf("Failed to process content with Ollama: %v", err),
+        })
+        return
+    }
 
-	r.GET("/solveTask4", func(ctx *gin.Context) {
-		// Get the censorship data
-		content, err := services.GetCensorshipData(centralaBaseURL, centralaAPIKey)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to fetch censorship data: %v", err),
-			})
-			return
-		}
+    reportRequest := map[string]interface{}{
+        "task":   "CENZURA",
+        "apikey": centralaAPIKey,
+        "answer": censoredContent,
+    }
 
-		println("Content: ", content)
+    reportURL := fmt.Sprintf("%s/report", centralaBaseURL)
+    response, err := services.PostJSON(reportURL, reportRequest)
+    if (err != nil) {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": fmt.Sprintf("Failed to send report: %v", err),
+        })
+        return
+    }
 
-		// Create Ollama service with gemma2 model
-		ollamaService, err := services.NewOllamaService(
-			os.Getenv("OLLAMA_URL"),
-			`You are a text processing assistant. Your task is to identify and censor personal information in text.
-			Replace the following with the word "CENZURA":
-			- Full Names
-			- Ages
-			- Cities
-			- Streets, including numbers
-			
-			Return only the processed text, with no additional explanations or formatting.
-			Keep all other information unchanged.
+    ctx.JSON(http.StatusOK, gin.H{
+        "originalContent": content,
+        "censoredContent": censoredContent,
+        "reportResponse":  response,
+    })
+}
 
-			Examples:
-			- "Bartosz Przykładowy" -> "CENZURA"
-			- "I live at ul. Mickiewicza 15 in Warsaw" -> "I live at ul. CENZURA in CENZURA"
-			- "Address: st. Oak Street 45, Chicago" -> "Address: st. CENZURA, CENZURA"
-			- "Contact Sarah Jones, age 30, at ul. Długa 7" -> "Contact CENZURA, age CENZURA, at ul. CENZURA"
-			`,
-			"gemma2",
-		)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to create Ollama service: %v", err),
-			})
-			return
-		}
+func solveTask5(ctx *gin.Context, llmService services.LLMService, centralaBaseURL, centralaAPIKey string) {
+    openAIService, ok := llmService.(*services.OpenAiService)
+    if (!ok) {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": "LLM service is not an OpenAI service",
+        })
+        return
+    }
 
-		// Process the content using Ollama
-		censoredContent, err := ollamaService.SendChatMessage(content)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to process content with Ollama: %v", err),
-			})
-			return
-		}
+    transcriptions, err := openAIService.TranscribeDirectory("datasets/task5")
+    if (err != nil) {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": fmt.Sprintf("Failed to transcribe audio files: %v", err),
+        })
+        return
+    }
 
-		println("Censored content: ", censoredContent)
+    var combinedText string
+    for _, transcription := range transcriptions {
+        combinedText += transcription + "\n"
+    }
 
-		// Format the request according to the required structure
-		reportRequest := map[string]interface{}{
-			"task":   "CENZURA",
-			"apikey": centralaAPIKey,
-			"answer": censoredContent,
-		}
+    prompt := `Please analyze these transcriptions carefully. Think step by step:
+    Think slowly and carefully.
+    Think about any locations which might be connected to universities or educational institutions.
+    They might not be directly mentioned.
+    Make sure to use external sources and your knowledge to find the answer.
+    Is there any specific part of university which is mentioned?
 
-		// Send the formatted request to the report endpoint
-		reportURL := fmt.Sprintf("%s/report", centralaBaseURL)
-		response, err := services.PostJSON(reportURL, reportRequest)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to send report: %v", err),
-			})
-			return
-		}
+    Return me only the answer in this format: { "question": "On which street is the university where Andrzej Maj gives lectures?", "answer": "street name" , "possible_locations": [{"name": "street name1", "reasoning": "reasoning1", "confidence": 0.8}, {"name": "street name2", "reasoning": "reasoning2", "confidence": 0.5}, {"name": "street name3", "reasoning": "reasoning3", "confidence": 0.3}]}
+    Correct answer is not given in the transcriptions, but it's possible to connect the dots.
 
-		ctx.JSON(http.StatusOK, gin.H{
-			"originalContent": content,
-			"censoredContent": censoredContent,
-			"reportResponse":  response,
-		})
-	})
+    Transcriptions:
+    ` + combinedText
 
-	r.GET("/solveTask5", func(ctx *gin.Context) {
-		// Cast the LLMService to OpenAiService to access transcription methods
-		openAIService, ok := llmService.(*services.OpenAiService)
-		if !ok {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": "LLM service is not an OpenAI service",
-			})
-			return
-		}
+    response, err := openAIService.SendChatMessage(prompt)
+    if (err != nil) {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": fmt.Sprintf("Failed to process with GPT: %v", err),
+        })
+        return
+    }
 
-		// 1. Transcribe all audio files
-		transcriptions, err := openAIService.TranscribeDirectory("datasets/task5")
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to transcribe audio files: %v", err),
-			})
-			return
-		}
+    reportRequest := map[string]interface{}{
+        "task":   "mp3",
+        "apikey": centralaAPIKey,
+        "answer": response,
+    }
 
-		// 2. Combine all transcriptions into one text
-		var combinedText string
-		for _, transcription := range transcriptions {
-			combinedText += transcription + "\n"
-		}
+    reportURL := fmt.Sprintf("%s/report", centralaBaseURL)
+    reportResponse, err := services.PostJSON(reportURL, reportRequest)
+    if (err != nil) {
+        ctx.JSON(http.StatusInternalServerError, gin.H{
+            "error": fmt.Sprintf("Failed to send report: %v", err),
+        })
+        return
+    }
 
-		// 3. Prepare the prompt for GPT-4
-		prompt := `Please analyze these transcriptions carefully. Think step by step:
-		Think slowly and carefully.
-		Think about any locations which might be connected to universities or educational institutions.
-		They might not be directly mentioned.
-		Make sure to use external sources and your knowledge to find the answer.
-		Is there any specific part of university which is mentioned?
+    ctx.JSON(http.StatusOK, gin.H{
+        "transcriptions": transcriptions,
+        "gptResponse":    response,
+        "reportResponse": reportResponse,
+    })
+}
 
-		Return me only the answer in this format: { "question": "On which street is the university where Andrzej Maj gives lectures?", "answer": "street name" , "possible_locations": [{"name": "street name1", "reasoning": "reasoning1", "confidence": 0.8}, {"name": "street name2", "reasoning": "reasoning2", "confidence": 0.5}, {"name": "street name3", "reasoning": "reasoning3", "confidence": 0.3}]}
-		Correct answer is not given in the transcriptions, but it's possible to connect the dots.
+func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centralaAPIKey, ollamaURL, openaiAPIKey string) *gin.Engine {
+    r := gin.Default()
 
-Transcriptions:
-` + combinedText
+    r.GET("/ping", func(ctx *gin.Context) {
+        ctx.JSON(http.StatusOK, gin.H{"message": "pong"})
+    })
 
-		// 4. Get response from GPT
-		response, err := openAIService.SendChatMessage(prompt)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to process with GPT: %v", err),
-			})
-			return
-		}
+    r.GET("/solveTask1", func(ctx *gin.Context) {
+        tasks.SolveTask1(ctx, llmService, baseURL)
+    })
 
-		// 5. Send the response to centrala/report
-		reportRequest := map[string]interface{}{
-			"task":   "mp3",
-			"apikey": centralaAPIKey,
-			"answer": response,
-		}
+    r.GET("/solveTask2", func(ctx *gin.Context) {
+        tasks.SolveTask2(ctx, llmService, baseURL)
+    })
 
-		reportURL := fmt.Sprintf("%s/report", centralaBaseURL)
-		reportResponse, err := services.PostJSON(reportURL, reportRequest)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to send report: %v", err),
-			})
-			return
-		}
+    r.GET("/solveTask3", func(ctx *gin.Context) {
+        tasks.SolveTask3(ctx, llmService, centralaBaseURL, centralaAPIKey)
+    })
 
-		ctx.JSON(http.StatusOK, gin.H{
-			"transcriptions": transcriptions,
-			"gptResponse":    response,
-			"reportResponse": reportResponse,
-		})
-	})
+    r.GET("/solveTask4", func(ctx *gin.Context) {
+        tasks.SolveTask4(ctx, llmService, centralaBaseURL, centralaAPIKey, ollamaURL)
+    })
 
-	r.GET("/solveTask6", func(ctx *gin.Context) {
-		// 1. Get the robot ID JSON from centrala
-		robotIDURL := fmt.Sprintf("%s/data/%s/robotid.json", centralaBaseURL, centralaAPIKey)
-		content, err := services.GetRequestBody(robotIDURL)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to fetch robot ID data: %v", err),
-			})
-			return
-		}
+    r.GET("/solveTask5", func(ctx *gin.Context) {
+        tasks.SolveTask5(ctx, llmService, centralaBaseURL, centralaAPIKey)
+    })
 
-		// Cast the LLMService to OpenAiService to access DALL-E methods
-		openAIService, ok := llmService.(*services.OpenAiService)
-		if !ok {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": "LLM service is not an OpenAI service",
-			})
-			return
-		}
+    r.GET("/solveTask6", func(ctx *gin.Context) {
+        tasks.SolveTask6(ctx, centralaBaseURL, centralaAPIKey, openaiAPIKey)
+    })
 
-		// 2. Generate image using DALL-E
-		imageURL, err := openAIService.GenerateImage(content, 1024, 1024)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to generate image: %v", err),
-			})
-			return
-		}
-
-		// 3. Report the result to centrala
-		reportRequest := map[string]interface{}{
-			"task":   "robotid",
-			"apikey": centralaAPIKey,
-			"answer": imageURL,
-		}
-
-		reportURL := fmt.Sprintf("%s/report", centralaBaseURL)
-		response, err := services.PostJSON(reportURL, reportRequest)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to send report: %v", err),
-			})
-			return
-		}
-
-		ctx.JSON(http.StatusOK, gin.H{
-			"robotIDContent": content,
-			"imageURL":       imageURL,
-			"reportResponse": response,
-		})
-	})
-
-	return r
+    return r
 }
 
 func main() {
@@ -449,6 +394,6 @@ Be concise and return only the JSON response.`
 		return
 	}
 
-	r := setupRouter(llmService, baseURL, centralaBaseURL, centralaAPIKey)
+	r := setupRouter(llmService, baseURL, centralaBaseURL, centralaAPIKey, ollamaURL, apiKey)
 	r.Run(":8080")
 }
