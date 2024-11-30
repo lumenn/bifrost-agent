@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -202,4 +203,46 @@ func (s *OpenAiService) GenerateImage(prompt string, width, height int) (string,
 	}
 
 	return resp.Data[0].URL, nil
+}
+
+func (s *OpenAiService) AnalyzeImage(imagePath string) (string, error) {
+	content, err := os.ReadFile(imagePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read image file: %w", err)
+	}
+
+	base64Image := base64.StdEncoding.EncodeToString(content)
+
+	messages := []openai.ChatCompletionMessage{
+		{
+			Role: "user",
+			MultiContent: []openai.ChatMessagePart{
+				{
+					Type: openai.ChatMessagePartTypeText,
+					Text: "Describe what you see in this image.",
+				},
+				{
+					Type: openai.ChatMessagePartTypeImageURL,
+					ImageURL: &openai.ChatMessageImageURL{
+						URL:    fmt.Sprintf("data:image/jpeg;base64,%s", base64Image),
+						Detail: "low",
+					},
+				},
+			},
+		},
+	}
+
+	resp, err := s.client.CreateChatCompletion(
+		context.Background(),
+		openai.ChatCompletionRequest{
+			Model:     openai.GPT4Turbo,
+			Messages:  messages,
+			MaxTokens: 300,
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to analyze image: %w", err)
+	}
+
+	return resp.Choices[0].Message.Content, nil
 }
