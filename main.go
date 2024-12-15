@@ -9,10 +9,10 @@ import (
 
 	services "github.com/lumenn/bifrost-agent/services"
 	"github.com/lumenn/bifrost-agent/tasks"
+	"github.com/sashabaranov/go-openai"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	openai "github.com/sashabaranov/go-openai"
 )
 
 func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centralaAPIKey, ollamaURL, openaiAPIKey string) *gin.Engine {
@@ -52,6 +52,10 @@ func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centr
 
 	r.GET("/solveTask8", func(ctx *gin.Context) {
 		tasks.SolveTask8(ctx, llmService, centralaBaseURL, centralaAPIKey)
+	})
+
+	r.GET("/solveTask9", func(ctx *gin.Context) {
+		tasks.SolveTask9(ctx, llmService, centralaBaseURL, centralaAPIKey)
 	})
 
 	return r
@@ -96,8 +100,11 @@ func main() {
 
 	systemPrompt := `You are a helpful assistant that answers questions by providing street names. 
 Return your answer in this format: { "question": "this is a question?", "answer": "street name" }. 
-Be concise and return only the JSON response.`
-	llmService, err := services.NewOpenAIService(apiKey, systemPrompt, openai.GPT4o)
+Be concise and return only the JSON response. 
+<rule>NEVER USE MARKDOWN CODE BLOCKS</rule>
+`
+	// llmService, err := services.NewOllamaService(ollamaURL, systemPrompt, "gemma2")
+	llmService, err := services.NewOpenAIService(apiKey, systemPrompt, openai.GPT4oMini)
 
 	if err != nil {
 		fmt.Println("Error initializing LLM Service:", err)
