@@ -1,4 +1,3 @@
-
 package tasks
 
 import (
@@ -8,9 +7,9 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/gin-gonic/gin"
 	"github.com/lumenn/bifrost-agent/services"
-	"github.com/PuerkitoBio/goquery"
 )
 
 func SolveTask1(ctx *gin.Context, llmService services.LLMService, baseURL string) {
@@ -18,6 +17,8 @@ func SolveTask1(ctx *gin.Context, llmService services.LLMService, baseURL string
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Base URL is not set"})
 		return
 	}
+
+	llmService.SetSystemPrompt("Please provide answer to given question only, using format: { \"question\": \"question\", \"answer\": \"answer\" }")
 
 	urlAddress := baseURL + "/"
 	body, err := services.GetRequestBody(urlAddress)

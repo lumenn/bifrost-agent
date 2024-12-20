@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -16,9 +15,12 @@ import (
 )
 
 func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centralaAPIKey, ollamaURL, openaiAPIKey string) *gin.Engine {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 	r := gin.Default()
 
 	r.GET("/ping", func(ctx *gin.Context) {
+		log.Println("[INFO] Handling ping request")
 		ctx.JSON(http.StatusOK, gin.H{"message": "pong"})
 	})
 
@@ -62,40 +64,35 @@ func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centr
 }
 
 func main() {
-	// Load environment variables
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		log.Fatal("[FATAL] Error loading .env file")
 	}
 
-	// Get environment variables
 	ollamaURL := os.Getenv("OLLAMA_URL")
 	if ollamaURL == "" {
-		log.Fatal("OLLAMA_URL not specified in environment variables")
+		log.Fatal("[FATAL] OLLAMA_URL not specified in environment variables")
 	}
 
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	baseURL := os.Getenv("XYZ_BASE_URL")
 
-	// Add Centrala environment variables here
 	centralaBaseURL := os.Getenv("CENTRALA_BASE_URL")
 	if centralaBaseURL == "" {
-		fmt.Println("Error: CENTRALA_BASE_URL environment variable is not set")
-		return
+		log.Fatal("[FATAL] CENTRALA_BASE_URL environment variable is not set")
 	}
 
 	centralaAPIKey := os.Getenv("CENTRALA_API_KEY")
 	if centralaAPIKey == "" {
-		fmt.Println("Error: CENTRALA_API_KEY environment variable is not set")
-		return
+		log.Fatal("[FATAL] CENTRALA_API_KEY environment variable is not set")
 	}
 
 	if baseURL == "" {
-		fmt.Println("Error: XYZ_BASE_URL environment variable is not set")
-		return
+		log.Fatal("[FATAL] XYZ_BASE_URL environment variable is not set")
 	}
 
-	// Trim any trailing slashes from the base URL
 	baseURL = strings.TrimRight(baseURL, "/")
 
 	systemPrompt := `You are a helpful assistant that answers questions by providing street names. 
@@ -103,14 +100,12 @@ Return your answer in this format: { "question": "this is a question?", "answer"
 Be concise and return only the JSON response. 
 <rule>NEVER USE MARKDOWN CODE BLOCKS</rule>
 `
-	// llmService, err := services.NewOllamaService(ollamaURL, systemPrompt, "gemma2")
 	llmService, err := services.NewOpenAIService(apiKey, systemPrompt, openai.GPT4oMini)
-
 	if err != nil {
-		fmt.Println("Error initializing LLM Service:", err)
-		return
+		log.Fatal("[FATAL] Error initializing LLM Service:", err)
 	}
 
 	r := setupRouter(llmService, baseURL, centralaBaseURL, centralaAPIKey, ollamaURL, apiKey)
+	log.Println("[INFO] Starting server on :8080")
 	r.Run(":8080")
 }

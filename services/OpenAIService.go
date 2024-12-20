@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -53,8 +54,11 @@ func NewOpenAIService(apiKey string, systemPrompt string, model string) (*OpenAi
 
 func (s OpenAiService) SendChatMessage(message string) (string, error) {
 	if message == "" {
+		log.Println("[ERROR] Empty message provided")
 		return "", fmt.Errorf("empty message provided")
 	}
+
+	log.Printf("[DEBUG] Sending message to OpenAI (length: %d)", len(message))
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 	defer cancel()
@@ -83,6 +87,7 @@ func (s OpenAiService) SendChatMessage(message string) (string, error) {
 		return "", fmt.Errorf("no response choices returned from API")
 	}
 
+	log.Printf("[DEBUG] Received response from OpenAI (length: %d)", len(openaiResp.Choices[0].Message.Content))
 	return openaiResp.Choices[0].Message.Content, nil
 }
 

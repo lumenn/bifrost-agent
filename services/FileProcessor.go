@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -34,9 +35,12 @@ func DownloadFile(url string, filepath string) error {
 
 // UnzipFile extracts a ZIP file to the specified directory, optionally using a password
 func UnzipFile(zipPath, destDir string, password *string) error {
+	log.Printf("[INFO] Unzipping %s to %s", zipPath, destDir)
+
 	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
-		return fmt.Errorf("failed to open zip: %w", err)
+		log.Printf("[ERROR] Failed to open zip file %s: %v", zipPath, err)
+		return fmt.Errorf("failed to open zip file: %w", err)
 	}
 	defer reader.Close()
 
@@ -77,13 +81,17 @@ func UnzipFile(zipPath, destDir string, password *string) error {
 			return fmt.Errorf("failed to extract file: %w", err)
 		}
 	}
+	log.Printf("[INFO] Successfully unzipped %s", zipPath)
 	return nil
 }
 
 // ListFiles returns a list of non-directory files in the specified directory
 func ListFiles(dir string, excludeExt ...string) ([]string, error) {
+	log.Printf("[DEBUG] Listing files in directory: %s", dir)
+
 	files, err := os.ReadDir(dir)
 	if err != nil {
+		log.Printf("[ERROR] Failed to read directory %s: %v", dir, err)
 		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
 
