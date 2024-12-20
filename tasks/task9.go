@@ -16,7 +16,6 @@ import (
 func SolveTask9(ctx *gin.Context, llmService services.LLMService, centralaBaseURL, centralaAPIKey string) {
 	log.Println("[INFO] Starting Task9 execution")
 
-	// Use system /tmp directory instead of local temp
 	llmService.SetSystemPrompt(
 		`You have two tasks: 1. Analyse text and return keywords, 2. Help choosing the context files. 
 		<rules>
@@ -32,13 +31,25 @@ func SolveTask9(ctx *gin.Context, llmService services.LLMService, centralaBaseUR
 		return
 	}
 
-	downloadURL := fmt.Sprintf("%s/dane/pliki_z_fabryki.zip", centralaBaseURL)
-	fileProcessor := services.NewFileProcessor(downloadURL, workDir)
-
 	// Download and extract files
-	files, err := fileProcessor.ProcessFiles()
+	zipPath := filepath.Join(workDir, "files.zip")
+	downloadURL := fmt.Sprintf("%s/dane/pliki_z_fabryki.zip", centralaBaseURL)
+
+	if !services.FileExists(zipPath) {
+		if err := services.DownloadFile(downloadURL, zipPath); err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to download files: %v", err)})
+			return
+		}
+	}
+
+	if err := services.UnzipFile(zipPath, workDir, nil); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to extract files: %v", err)})
+		return
+	}
+
+	files, err := services.ListFiles(workDir, ".zip")
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to process files: %v", err)})
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to list files: %v", err)})
 		return
 	}
 

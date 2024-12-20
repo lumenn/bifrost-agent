@@ -43,19 +43,28 @@ func SolveTask7(ctx *gin.Context, llmService services.LLMService, centralaBaseUR
 
 func processTask7(baseURL, apiKey string, openAI *services.OpenAiService) (*AnalysisReport, map[string]interface{}, error) {
 	workDir := filepath.Join("/tmp", "task7")
-	openAI.SetSystemPrompt("follow speciied instrictuions with much care")
+	openAI.SetSystemPrompt("follow speciified instrictuions with much care")
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return nil, nil, fmt.Errorf("failed to create work directory: %w", err)
 	}
 
-	fileProcessor := services.NewFileProcessor(
-		fmt.Sprintf("%s/dane/pliki_z_fabryki.zip", baseURL),
-		workDir,
-	)
+	// Download and extract files
+	zipPath := filepath.Join(workDir, "files.zip")
+	downloadURL := fmt.Sprintf("%s/dane/pliki_z_fabryki.zip", baseURL)
 
-	filePaths, err := fileProcessor.ProcessFiles()
+	if !services.FileExists(zipPath) {
+		if err := services.DownloadFile(downloadURL, zipPath); err != nil {
+			return nil, nil, fmt.Errorf("failed to download files: %w", err)
+		}
+	}
+
+	if err := services.UnzipFile(zipPath, workDir, nil); err != nil {
+		return nil, nil, fmt.Errorf("failed to extract files: %w", err)
+	}
+
+	filePaths, err := services.ListFiles(workDir, ".zip")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to process files: %w", err)
+		return nil, nil, fmt.Errorf("failed to list files: %w", err)
 	}
 
 	if len(filePaths) == 0 {
