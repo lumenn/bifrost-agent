@@ -6,10 +6,17 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
-
-	"github.com/alexmullins/zip"
 )
+
+// Add this function to check if unzip is available
+func init() {
+	_, err := exec.LookPath("unzip")
+	if err != nil {
+		log.Fatal("unzip command not found. Please install unzip to use this application.")
+	}
+}
 
 // DownloadFile downloads a file from URL to the specified filepath
 func DownloadFile(url string, filepath string) error {
@@ -37,50 +44,23 @@ func DownloadFile(url string, filepath string) error {
 func UnzipFile(zipPath, destDir string, password *string) error {
 	log.Printf("[INFO] Unzipping %s to %s", zipPath, destDir)
 
-	reader, err := zip.OpenReader(zipPath)
+	// Ensure destination directory exists
+	if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	args := []string{"-o", zipPath, "-d", destDir}
+	if password != nil {
+		args = append([]string{"-P", *password}, args...)
+	}
+
+	cmd := exec.Command("unzip", args...)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("[ERROR] Failed to open zip file %s: %v", zipPath, err)
-		return fmt.Errorf("failed to open zip file: %w", err)
+		log.Printf("[ERROR] Unzip command failed: %s", string(output))
+		return fmt.Errorf("failed to unzip file: %w", err)
 	}
-	defer reader.Close()
 
-	for _, file := range reader.File {
-		if password != nil && file.IsEncrypted() {
-			file.SetPassword(*password)
-		}
-
-		path := filepath.Join(destDir, file.Name)
-
-		if file.FileInfo().IsDir() {
-			if err := os.MkdirAll(path, os.ModePerm); err != nil {
-				return fmt.Errorf("failed to create directory: %w", err)
-			}
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
-			return fmt.Errorf("failed to create parent directory: %w", err)
-		}
-
-		dstFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
-		if err != nil {
-			return fmt.Errorf("failed to create destination file: %w", err)
-		}
-
-		srcFile, err := file.Open()
-		if err != nil {
-			dstFile.Close()
-			return fmt.Errorf("failed to open zip file entry: %w", err)
-		}
-
-		_, err = io.Copy(dstFile, srcFile)
-		dstFile.Close()
-		srcFile.Close()
-
-		if err != nil {
-			return fmt.Errorf("failed to extract file: %w", err)
-		}
-	}
 	log.Printf("[INFO] Successfully unzipped %s", zipPath)
 	return nil
 }
