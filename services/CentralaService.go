@@ -38,6 +38,16 @@ type CentralaService struct {
 	openAIService *OpenAiService
 }
 
+type APIResponse struct {
+	Reply interface{} `json:"reply"`
+	Error string      `json:"error"`
+}
+
+type EntityResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
 func NewCentralaService(baseURL, apiKey string, openAIService *OpenAiService) *CentralaService {
 	return &CentralaService{
 		baseURL:       baseURL,
@@ -301,4 +311,27 @@ Context:
 	}
 
 	return answers, nil
+}
+
+func (s *CentralaService) QueryAPI(endpoint, query string) (interface{}, error) {
+	request := map[string]interface{}{
+		"apikey": s.apiKey,
+		"query":  query,
+	}
+
+	response, err := PostJSON(fmt.Sprintf("%s%s", s.baseURL, endpoint), request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query API: %w", err)
+	}
+
+	var apiResponse EntityResponse
+	if err := json.Unmarshal([]byte(response), &apiResponse); err != nil {
+		return nil, fmt.Errorf("failed to parse API response: %w", err)
+	}
+
+	if apiResponse.Code != 0 {
+		return nil, fmt.Errorf("API error: code %d", apiResponse.Code)
+	}
+
+	return apiResponse, nil
 }

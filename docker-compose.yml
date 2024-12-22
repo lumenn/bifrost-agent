@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.0
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./docker/qdrant:/qdrant/storage
+
+  typesense:
+    image: typesense/typesense:27.1
+    container_name: typesense
+    ports:
+      - "8108:8108"
+    volumes:
+      - ./docker/typesense:/data
+    environment:
+      - TYPESENSE_API_KEY=xyz123 # Replace with your secure API key in production
+      - TYPESENSE_DATA_DIR=/data
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17.2-alpine
+    container_name: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/postgres:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres  # Change this in production
+      - POSTGRES_DB=myapp
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  qdrant_storage:
+  typesense_data:
+  postgres_data:

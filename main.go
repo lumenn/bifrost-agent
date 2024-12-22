@@ -68,6 +68,10 @@ func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centr
 		tasks.SolveTask11(ctx, llmService, centralaBaseURL, centralaAPIKey)
 	})
 
+	r.GET("/solveTask12", func(ctx *gin.Context) {
+		tasks.SolveTask12(ctx, llmService, centralaBaseURL, centralaAPIKey)
+	})
+
 	return r
 }
 
