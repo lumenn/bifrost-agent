@@ -48,6 +48,26 @@ type EntityResponse struct {
 	Message string `json:"message"`
 }
 
+type DatabaseResponse struct {
+	Reply interface{} `json:"reply"`
+	Error string      `json:"error"`
+}
+
+type TableInfo struct {
+	TableName string `json:"Tables_in_banan"`
+}
+
+type TableStructure struct {
+	Table       string `json:"Table"`
+	CreateTable string `json:"Create Table"`
+}
+
+type DatabaseRequest struct {
+	Task   string `json:"task"`
+	APIKey string `json:"apikey"`
+	Query  string `json:"query"`
+}
+
 func NewCentralaService(baseURL, apiKey string, openAIService *OpenAiService) *CentralaService {
 	return &CentralaService{
 		baseURL:       baseURL,
@@ -334,4 +354,79 @@ func (s *CentralaService) QueryAPI(endpoint, query string) (interface{}, error) 
 	}
 
 	return apiResponse, nil
+}
+
+func (s *CentralaService) QueryDatabase(query string) (*DatabaseResponse, error) {
+	request := DatabaseRequest{
+		Task:   "database",
+		APIKey: s.apiKey,
+		Query:  query,
+	}
+
+	response, err := PostJSON(fmt.Sprintf("%s/apidb", s.baseURL), request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query database: %w", err)
+	}
+
+	var dbResponse DatabaseResponse
+	if err := json.Unmarshal([]byte(response), &dbResponse); err != nil {
+		return nil, fmt.Errorf("failed to parse database response: %w", err)
+	}
+
+	if dbResponse.Error != "OK" {
+		return nil, fmt.Errorf("database error: %s", dbResponse.Error)
+	}
+
+	return &dbResponse, nil
+}
+
+func (s *CentralaService) ShowTables() ([]string, error) {
+	response, err := s.QueryDatabase("SHOW TABLES")
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert the reply to JSON to parse it
+	replyJSON, err := json.Marshal(response.Reply)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal reply: %w", err)
+	}
+
+	var tables []TableInfo
+	if err := json.Unmarshal(replyJSON, &tables); err != nil {
+		return nil, fmt.Errorf("failed to parse tables: %w", err)
+	}
+
+	// Extract table names
+	tableNames := make([]string, len(tables))
+	for i, table := range tables {
+		tableNames[i] = table.TableName
+	}
+
+	return tableNames, nil
+}
+
+func (s *CentralaService) ShowCreateTable(tableName string) (string, error) {
+	query := fmt.Sprintf("SHOW CREATE TABLE %s", tableName)
+	response, err := s.QueryDatabase(query)
+	if err != nil {
+		return "", err
+	}
+
+	// Convert the reply to JSON to parse it
+	replyJSON, err := json.Marshal(response.Reply)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal reply: %w", err)
+	}
+
+	var structures []TableStructure
+	if err := json.Unmarshal(replyJSON, &structures); err != nil {
+		return "", fmt.Errorf("failed to parse table structure: %w", err)
+	}
+
+	if len(structures) == 0 {
+		return "", fmt.Errorf("no structure returned for table %s", tableName)
+	}
+
+	return structures[0].CreateTable, nil
 }

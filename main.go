@@ -72,6 +72,10 @@ func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centr
 		tasks.SolveTask12(ctx, llmService, centralaBaseURL, centralaAPIKey)
 	})
 
+	r.GET("/solveTask13", func(ctx *gin.Context) {
+		tasks.Task13(ctx, centralaBaseURL, centralaAPIKey)
+	})
+
 	return r
 }
 
@@ -112,7 +116,7 @@ Return your answer in this format: { "question": "this is a question?", "answer"
 Be concise and return only the JSON response. 
 <rule>NEVER USE MARKDOWN CODE BLOCKS</rule>
 `
-	llmService, err := services.NewOpenAIService(apiKey, systemPrompt, openai.GPT4oMini)
+	llmService, err := services.NewOpenAIService(apiKey, systemPrompt, openai.GPT4o)
 	if err != nil {
 		log.Fatal("[FATAL] Error initializing LLM Service:", err)
 	}
