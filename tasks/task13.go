@@ -71,7 +71,7 @@ func findShortestPath(ctx context.Context, session neo4j.SessionWithContext) ([]
 	return result.([]string), nil
 }
 
-func Task13(ctx *gin.Context, centralaBaseURL, centralaAPIKey string) {
+func SolveTask13(ctx *gin.Context, centralaBaseURL, centralaAPIKey string) {
 	// Create CentralaService instance
 	centralService := services.NewCentralaService(centralaBaseURL, centralaAPIKey, nil) // nil for openAIService as it's not needed
 

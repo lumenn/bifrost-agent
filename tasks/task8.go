@@ -225,7 +225,7 @@ func SolveTask8(ctx *gin.Context, llmService services.LLMService, centralaBaseUR
 
 			if description == "" {
 				log.Printf("Analyzing image from %s", localPath)
-				description, err = openAIService.AnalyzeImage(localPath)
+				description, err = openAIService.AnalyzeImages(localPath)
 				if err != nil {
 					log.Printf("[ERROR] Failed to analyze image from %s: %v", src, err)
 					return

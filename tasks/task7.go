@@ -130,7 +130,7 @@ func analyzeFile(filePath string, openAI *services.OpenAiService) (string, error
 			return "", err
 		}
 	case ".jpg", ".jpeg", ".png":
-		content, err = openAI.AnalyzeImage(filePath)
+		content, err = openAI.AnalyzeImages(filePath)
 		if err != nil {
 			return "", err
 		}

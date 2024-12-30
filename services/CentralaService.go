@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -44,8 +45,9 @@ type APIResponse struct {
 }
 
 type EntityResponse struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int      `json:"code"`
+	Message string   `json:"message"`
+	Hints   []string `json:"hints,omitempty"`
 }
 
 type DatabaseResponse struct {
@@ -259,7 +261,7 @@ func (s *CentralaService) ProcessArxivPage(url string) (string, []MediaInfo, err
 			wg.Add(1)
 			go func(imgURL string) {
 				defer wg.Done()
-				if description, err := s.openAIService.AnalyzeImage(imgURL); err == nil {
+				if description, err := s.openAIService.AnalyzeImages(imgURL); err == nil {
 					mu.Lock()
 					mediaInfos = append(mediaInfos, MediaInfo{
 						Type:        "image",
@@ -334,66 +336,96 @@ Context:
 }
 
 func (s *CentralaService) QueryAPI(endpoint, query string) (interface{}, error) {
+	log.Printf("[INFO] Querying Centrala API - Endpoint: %s, Query Length: %d", endpoint, len(query))
+	log.Printf("[DEBUG] Centrala API Query Content: %s", query)
+
 	request := map[string]interface{}{
 		"apikey": s.apiKey,
 		"query":  query,
 	}
 
+	log.Printf("[DEBUG] Centrala API Request - Endpoint: %s", endpoint)
 	response, err := PostJSON(fmt.Sprintf("%s%s", s.baseURL, endpoint), request)
 	if err != nil {
+		log.Printf("[ERROR] Failed to query Centrala API: %v", err)
 		return nil, fmt.Errorf("failed to query API: %w", err)
 	}
 
 	var apiResponse EntityResponse
 	if err := json.Unmarshal([]byte(response), &apiResponse); err != nil {
+		log.Printf("[ERROR] Failed to parse Centrala API response: %v", err)
 		return nil, fmt.Errorf("failed to parse API response: %w", err)
 	}
 
 	if apiResponse.Code != 0 {
+		log.Printf("[ERROR] Centrala API returned error code: %d", apiResponse.Code)
 		return nil, fmt.Errorf("API error: code %d", apiResponse.Code)
+	}
+
+	log.Printf("[INFO] Received Centrala API response - Code: %d, Message Length: %d",
+		apiResponse.Code, len(apiResponse.Message))
+	log.Printf("[DEBUG] Centrala API Response Message: %s", apiResponse.Message)
+	if len(apiResponse.Hints) > 0 {
+		log.Printf("[DEBUG] Centrala API Response Hints: %v", apiResponse.Hints)
 	}
 
 	return apiResponse, nil
 }
 
 func (s *CentralaService) QueryDatabase(query string) (*DatabaseResponse, error) {
+	log.Printf("[INFO] Querying Centrala database - Query Length: %d", len(query))
+	log.Printf("[DEBUG] Database Query: %s", query)
+
 	request := DatabaseRequest{
 		Task:   "database",
 		APIKey: s.apiKey,
 		Query:  query,
 	}
 
+	log.Printf("[DEBUG] Centrala Database Request - Query: %s", query)
 	response, err := PostJSON(fmt.Sprintf("%s/apidb", s.baseURL), request)
 	if err != nil {
+		log.Printf("[ERROR] Failed to query Centrala database: %v", err)
 		return nil, fmt.Errorf("failed to query database: %w", err)
 	}
 
 	var dbResponse DatabaseResponse
 	if err := json.Unmarshal([]byte(response), &dbResponse); err != nil {
+		log.Printf("[ERROR] Failed to parse database response: %v", err)
 		return nil, fmt.Errorf("failed to parse database response: %w", err)
 	}
 
 	if dbResponse.Error != "OK" {
+		log.Printf("[ERROR] Database returned error: %s", dbResponse.Error)
 		return nil, fmt.Errorf("database error: %s", dbResponse.Error)
 	}
+
+	log.Printf("[INFO] Received database response - Status: %s", dbResponse.Error)
+	replyJSON, _ := json.Marshal(dbResponse.Reply)
+	log.Printf("[DEBUG] Database Response Content: %s", string(replyJSON))
 
 	return &dbResponse, nil
 }
 
 func (s *CentralaService) ShowTables() ([]string, error) {
+	log.Println("[INFO] Fetching database tables")
+
 	response, err := s.QueryDatabase("SHOW TABLES")
 	if err != nil {
+		log.Printf("[ERROR] Failed to fetch tables: %v", err)
 		return nil, err
 	}
 
 	// Convert the reply to JSON to parse it
 	replyJSON, err := json.Marshal(response.Reply)
 	if err != nil {
+		log.Printf("[ERROR] Failed to marshal tables reply: %v", err)
 		return nil, fmt.Errorf("failed to marshal reply: %w", err)
 	}
 
 	var tables []TableInfo
 	if err := json.Unmarshal(replyJSON, &tables); err != nil {
+		log.Printf("[ERROR] Failed to parse tables: %v", err)
 		return nil, fmt.Errorf("failed to parse tables: %w", err)
 	}
 
@@ -403,30 +435,71 @@ func (s *CentralaService) ShowTables() ([]string, error) {
 		tableNames[i] = table.TableName
 	}
 
+	log.Printf("[INFO] Successfully fetched %d tables", len(tableNames))
 	return tableNames, nil
 }
 
 func (s *CentralaService) ShowCreateTable(tableName string) (string, error) {
+	log.Printf("[INFO] Fetching structure for table: %s", tableName)
+
 	query := fmt.Sprintf("SHOW CREATE TABLE %s", tableName)
 	response, err := s.QueryDatabase(query)
 	if err != nil {
+		log.Printf("[ERROR] Failed to fetch table structure for %s: %v", tableName, err)
 		return "", err
 	}
 
 	// Convert the reply to JSON to parse it
 	replyJSON, err := json.Marshal(response.Reply)
 	if err != nil {
+		log.Printf("[ERROR] Failed to marshal table structure reply: %v", err)
 		return "", fmt.Errorf("failed to marshal reply: %w", err)
 	}
 
 	var structures []TableStructure
 	if err := json.Unmarshal(replyJSON, &structures); err != nil {
+		log.Printf("[ERROR] Failed to parse table structure: %v", err)
 		return "", fmt.Errorf("failed to parse table structure: %w", err)
 	}
 
 	if len(structures) == 0 {
+		log.Printf("[ERROR] No structure returned for table %s", tableName)
 		return "", fmt.Errorf("no structure returned for table %s", tableName)
 	}
 
+	log.Printf("[INFO] Successfully fetched structure for table %s", tableName)
 	return structures[0].CreateTable, nil
+}
+
+func (s *CentralaService) PostReport(task string, answer string) (EntityResponse, error) {
+	log.Printf("[INFO] Sending report to Centrala - Task: %s, Answer Length: %d", task, len(answer))
+	log.Printf("[DEBUG] Report Answer Content: %s", answer)
+
+	request := map[string]interface{}{
+		"apikey": s.apiKey,
+		"task":   task,
+		"answer": answer,
+	}
+
+	log.Printf("[DEBUG] Centrala Report Request - Task: %s", task)
+	response, err := PostJSON(fmt.Sprintf("%s/report", s.baseURL), request)
+	if err != nil {
+		log.Printf("[ERROR] Failed to post report to Centrala: %v", err)
+		return EntityResponse{}, fmt.Errorf("failed to post report: %w", err)
+	}
+
+	var apiResponse EntityResponse
+	if err := json.Unmarshal([]byte(response), &apiResponse); err != nil {
+		log.Printf("[ERROR] Failed to parse Centrala response: %v", err)
+		return EntityResponse{}, fmt.Errorf("failed to parse API response: %w", err)
+	}
+
+	log.Printf("[INFO] Received Centrala response - Code: %d, Message Length: %d, Hints: %d",
+		apiResponse.Code, len(apiResponse.Message), len(apiResponse.Hints))
+	log.Printf("[DEBUG] Centrala Response Message: %s", apiResponse.Message)
+	if len(apiResponse.Hints) > 0 {
+		log.Printf("[DEBUG] Centrala Response Hints: %v", apiResponse.Hints)
+	}
+
+	return apiResponse, nil
 }
