@@ -1,2 +1,4 @@
 .env
 datasets
+docker
+__debug*
