@@ -471,8 +471,8 @@ func (s *CentralaService) ShowCreateTable(tableName string) (string, error) {
 	return structures[0].CreateTable, nil
 }
 
-func (s *CentralaService) PostReport(task string, answer string) (EntityResponse, error) {
-	log.Printf("[INFO] Sending report to Centrala - Task: %s, Answer Length: %d", task, len(answer))
+func (s *CentralaService) PostReport(task string, answer interface{}) (EntityResponse, error) {
+	log.Printf("[INFO] Sending report to Centrala - Task: %s", task)
 	log.Printf("[DEBUG] Report Answer Content: %s", answer)
 
 	request := map[string]interface{}{

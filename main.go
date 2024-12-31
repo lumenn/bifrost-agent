@@ -14,7 +14,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centralaAPIKey, ollamaURL, openaiAPIKey string) *gin.Engine {
+func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centralaAPIKey, ollamaURL, openaiAPIKey, softoBaseURL string) *gin.Engine {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	r := gin.Default()
@@ -80,6 +80,10 @@ func setupRouter(llmService services.LLMService, baseURL, centralaBaseURL, centr
 		tasks.SolveTask14(ctx, llmService, centralaBaseURL, centralaAPIKey)
 	})
 
+	r.GET("/solveTask15", func(ctx *gin.Context) {
+		tasks.SolveTask15(ctx, llmService, centralaBaseURL, centralaAPIKey, softoBaseURL)
+	})
+
 	return r
 }
 
@@ -94,6 +98,11 @@ func main() {
 	ollamaURL := os.Getenv("OLLAMA_URL")
 	if ollamaURL == "" {
 		log.Fatal("[FATAL] OLLAMA_URL not specified in environment variables")
+	}
+
+	softoBaseURL := os.Getenv("SOFTO_BASE_URL")
+	if softoBaseURL == "" {
+		log.Fatal("[FATAL] SOFTO_BASE_URL not specified in environment variables")
 	}
 
 	apiKey := os.Getenv("OPENAI_API_KEY")
@@ -125,7 +134,7 @@ Be concise and return only the JSON response.
 		log.Fatal("[FATAL] Error initializing LLM Service:", err)
 	}
 
-	r := setupRouter(llmService, baseURL, centralaBaseURL, centralaAPIKey, ollamaURL, apiKey)
+	r := setupRouter(llmService, baseURL, centralaBaseURL, centralaAPIKey, ollamaURL, apiKey, softoBaseURL)
 	log.Println("[INFO] Starting server on :8080")
 	r.Run(":8080")
 }
